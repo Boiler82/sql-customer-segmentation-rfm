@@ -4,10 +4,15 @@ Segmenting a customer database using SQL and the RFM model (Recency, Frequency, 
 Part 2. Segment Exploration
 
 ‘Others’ = 39577 – 39,58% of the total
+
 ‘Potential Loyalist’ = 21437 – 21,44% of the total
+
 ‘Need Attention’ = 10929 – 10.93% of the total
+
 ‘Loyal’ = 9597 – 9.60% of the total
+
 ‘At Risk’ = 9492 – 9.49% of the total
+
 ‘Champions’ = 8964 – 8.96% of the total 
 
 ‘Others’ segment represent the core of average customers, hence the core of the business. Those customers are the one that keeps the business alive, they do not bring high revenue but at the same time they do not pose a risk. 
