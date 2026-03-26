@@ -20,10 +20,15 @@ Part 2. Segment Exploration
 The rest are equally distributed. ‘Champions’ segment is the smallest but the most valuable at the same time.
 
 ‘At Risk’ = 75573125101.58 – 33.32% of the total
+
 ‘Potential Loyalist’ = 70798318934.58 – 31.21% of the total
+
 ‘Others’ = 29573640890.98 – 13.04% of the total
+
 ‘Loyal’ = 20851020863.65 – 9.19% of the total
+
 ‘Need Attention’ = 18216348949.23 – 8.03% of the total
+
 ‘Champions’ = 11816851707.44 – 5.21% of the total
 
 ‘At Risk’ is on top of the list which can be alarming, but the good news is that ‘Potential Loyalist’ balance the situation. But it is something that definitely needs extra attention.
