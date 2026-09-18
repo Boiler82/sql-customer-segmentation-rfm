@@ -1,5 +1,6 @@
 -- Part 1. Customer Segmentation (RFM)
 -- Starting the query by setting the list of customers demographic that I will need for my analysis
+
 with relevant_customers_details as (
   select
     c.c_custkey,
@@ -75,8 +76,8 @@ scored_rfm as (
   select
     *,
     ntile(5) over(order by recency_days desc) as r_score,  
-    ntile(5) over(order by frequency_orders desc) as f_score, 
-    ntile(5) over(order by monetary_value desc) as m_score   
+    ntile(5) over(order by frequency_orders asc, customer_id) as f_score,
+    ntile(5) over(order by avg_order_value asc, customer_id) as m_score
   from
    aggregate_rfm 
 ),
@@ -89,9 +90,9 @@ segmented_rfm as (
       when r_score >= 4 and f_score >= 4 and m_score >= 4 then 'Champions'
       when r_score >= 4 and f_score >= 3 then 'Loyal'
       when r_score >= 4 then 'Potential Loyalist'
-      when r_score >= 3 and f_score >= 3 then 'Need Attention'
+      when r_score = 3 and f_score >= 3 then 'Need Attention'
+      when r_score = 1 and f_score = 1 then 'Lost'
       when r_score <=2 then 'At risk'
-      when r_score <= 1 and f_score <= 1 then 'Lost'
       else 'Others'
     end as rfm_segment
   from
@@ -109,26 +110,15 @@ limit 10
 
 
 -- Part 2. Segment Exploration
--- Substitute the following 4 options to the last statement of the query to obtain specific insights 
+-- Append each of these to the CTE chain from Part 1, one at a time.
 
 -- 1.
 select
   rfm_segment,
-  count(customer_id) AS customer_count,
-  round(count(customer_id) * 100.0 / sum(count(customer_id)) over(), 2) as percentage_of_total -- Using this formula to calculate a percentage
-from
-  segmented_rfm
-group by
-  rfm_segment
-order by
-  customer_count desc
-;
-
--- 2.
-select
-  rfm_segment,
+  count(customer_id) as customer_count,
+  round(count(customer_id) * 100.0 / sum(count(customer_id)) over(), 2) as percentage_of_total,
   sum(total_revenue) as total_revenue_per_segment,
-  round(sum(total_revenue) * 100.0 / sum(sum(total_revenue)) over(), 2) as percentage_of_total_revenue -- Using this formula to calculate a percentage
+  round(sum(total_revenue) * 100.0 / sum(sum(total_revenue)) over(), 2) as percentage_of_total_revenue
 from
   segmented_rfm
 group by
@@ -137,7 +127,7 @@ order by
   total_revenue_per_segment desc
 ;
 
--- 3.
+-- 2.
 select
   customer_id,
   customer_name,
@@ -156,18 +146,16 @@ order by
 limit 5
 ;
 
--- 4.
+-- 3.
 select
   nation_name,
-  count(customer_id) as high_value_customer_count
+  count(*)                            as customers,
+  count_if(rfm_segment = 'Champions') as champions,
+  round(100.0 * count_if(rfm_segment = 'Champions') / count(*), 2) as pct_champions
 from
   segmented_rfm
-where
-  rfm_segment = 'Champions'
 group by
   nation_name
 order by
-  high_value_customer_count desc,
-  nation_name asc
-;
+  pct_champions desc;
 
