@@ -1,84 +1,137 @@
 # sql-customer-segmentation-rfm
-Segmenting a customer database using SQL and the RFM model (Recency, Frequency, Monetary) to identify 'Champions', 'At Risk', and 'Lost' customers.
 
-Part 2. Segment Exploration
+Customer segmentation in SQL using the RFM model (Recency, Frequency, Monetary) on the Snowflake TPC-H sample dataset.
 
-‘Others’ = 39577 – 39,58% of the total
+The analysis scores 99,996 customers into quintiles on each dimension, groups them into named segments, and tests whether the resulting patterns are real.
 
-‘Potential Loyalist’ = 21437 – 21,44% of the total
+---
 
-‘Need Attention’ = 10929 – 10.93% of the total
+## Dataset
 
-‘Loyal’ = 9597 – 9.60% of the total
+`SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` — the `CUSTOMER`, `ORDERS` and `NATION` tables.
+Orders run from 1992 to 1998. Recency is anchored to the latest order date in the data rather than to the current date, so results do not drift over time.
 
-‘At Risk’ = 9492 – 9.49% of the total
+## Approach
 
-‘Champions’ = 8964 – 8.96% of the total 
+| Dimension | Metric | Sort direction |
+|---|---|---|
+| Recency | Days since last order | Descending, so the most recent buyers score 5 |
+| Frequency | Distinct order count | Ascending, so the most frequent score 5 |
+| Monetary | Average order value | Ascending, so the highest per-order spend scores 5 |
 
-‘Others’ segment represent the core of average customers, hence the core of the business. Those customers are the one that keeps the business alive, they do not bring high revenue but at the same time they do not pose a risk. 
-‘Potential Loyalist’ are a big part too, indicating a good number of recent purchases.
-The rest are equally distributed. ‘Champions’ segment is the smallest but the most valuable at the same time.
+Scores are assigned with `NTILE(5)`. Every score carries `customer_id` as a secondary sort key — without it, customers holding identical values are split arbitrarily across quintile boundaries and the segment counts change between runs.
 
-‘At Risk’ = 75573125101.58 – 33.32% of the total
+Scores are then combined into segments with a `CASE` expression running from most specific to most general.
 
-‘Potential Loyalist’ = 70798318934.58 – 31.21% of the total
+## Results
 
-‘Others’ = 29573640890.98 – 13.04% of the total
+| Segment | Customers | % of customers | % of revenue | Revenue per customer |
+|---|---|---|---|---|
+| At risk | 31,543 | 31.54% | 29.54% | 2,124,595 |
+| Loyal | 21,367 | 21.37% | 25.73% | 2,731,975 |
+| Need Attention | 13,263 | 13.26% | 16.98% | 2,904,770 |
+| Champions | 8,136 | 8.14% | 13.36% | 3,725,194 |
+| Potential Loyalist | 10,495 | 10.50% | 6.52% | 1,408,536 |
+| Lost | 8,456 | 8.46% | 3.78% | 1,013,203 |
+| Others | 6,736 | 6.74% | 4.08% | 1,373,919 |
 
-‘Loyal’ = 20851020863.65 – 9.19% of the total
+Champions hold 8.14% of customers and 13.36% of revenue — about 1.6× their weight. Revenue per customer runs from 3.73M down to 1.01M, a spread of roughly 3.7×.
 
-‘Need Attention’ = 18216348949.23 – 8.03% of the total
+The largest single revenue block is **At risk**: 29.54% of revenue at over 2.1M per customer. These are dormant high-value customers rather than low-value ones, which makes them the strongest candidate for a reactivation campaign.
 
-‘Champions’ = 11816851707.44 – 5.21% of the total
+## Why average order value
 
-‘At Risk’ is on top of the list which can be alarming, but the good news is that ‘Potential Loyalist’ balance the situation. But it is something that definitely needs extra attention.
+Monetary was originally scored on total spend. Two correlation checks showed why that was a poor choice on this dataset:
 
-1. Customer#000011123, India, 1325390.61 total revenue
-2. Customer#000143372, Mozambique, 1325155.59 total revenue
-3. Customer#000125651, Kenia, 1324971.40 total revenue
-4. Customer#000047849, China, 1324523.29 total revenue
-5. Customer#000108359, Jordan, 1324045.28 total revenue
+```sql
+select corr(frequency_orders, monetary_value)  as f_m_correlation,   -- 0.941
+       corr(frequency_orders, avg_order_value) as f_aov_correlation  -- -0.008
+from scored_rfm;
+```
 
-The value of total revenue are quite close between the top 5 High Value Customers, it is a tight win for the first one.
+Total spend correlates with order count at **0.94**, so Frequency and Monetary were measuring nearly the same thing and the model was effectively RF rather than RFM. Average order value correlates with frequency at **−0.008**, meaning it carries information that total spend was burying.
 
-Romania takes the first place, followed by Indonesia and Mozambique.
-Part 3. Written Insights
+The effect was measurable. With Monetary on total spend, `Champions` held about 19,500 customers (19.5%) — far above the ~6% that three independent quintile filters should select. After switching to average order value, `Champions` fell to 8,136 (8.14%), and the top five customers by RFM score rose from around 3.19M in total spend each to between 5.87M and 6.06M. The model is now selecting customers who both order often and spend well per order, instead of selecting the same "orders often" group twice.
 
-RFM Scoring and Segmentation Approach
+## Geographic analysis: a non-result
 
-RFM is a commonly used technique that evaluates customers values and segmenting customers that can be used to build marketing strategies. 
+Champion rates across the 25 TPC-H nations range from 9.11% (Algeria) down to 7.35% (Kenya) — a spread of 1.76 percentage points.
 
-The metrics that I used in order to have a customers rank are three:
-Recency: How recently a customer bought an item
-Frequency: How often a customer buys
-Monetary: How much a customer spent
-In order to be able to create a customer's rank I used the NTILE(5) function. That way I created 5 equally distributed ranks where 1 is the lowest metric and 5 the highest. 
-Most precisely the top 20% gets a score of 5, the lowest 20% gets a score of 1. 
-The OVER(ORDER BY), combined with the NTILE function, is vital in order to avoid syntax error and to perform the right ranking required by the RFM model. 
-I used the CASE statement finally to create labels that transform the score into an actionable group like ‘Champions’ or ‘Need Attention’. Makes it easier to read and more comprehensible. 
+With approximately 4,000 customers per nation and an overall rate of 8.14%, one standard deviation is about 0.43 points. The expected gap between the highest and lowest of 25 groups is around 1.7 points from random variation alone. The observed spread is 1.76.
 
-Key RFM Driver
+The national ranking is indistinguishable from chance. No nation shows a genuine difference in customer value.
 
-Based on my analysis on the result of my query, I would say that Recency is the most significant key to understanding customers behavior, hence building a more successful marketing strategy.  
-A customer that bought in the last few days is more likely to buy again in the near future compared to customers that did not make any purchase in the last 5 years, even if it was a high profile purchase. In that sense both Frequency and Monetary lose a little of their power because it is through Recency that a potential behaviour can be predicted. 
+An earlier version of this analysis ranked nations by raw Champion count and reported Romania first. By rate, Romania is 24th of 25. The count ranking was measuring nation size, not customer behaviour — France has the most customers of any nation (4,149) and ranks 13th by rate.
 
-Segment Distribution Insights
+## Bugs found and fixed
 
-A good segment distribution can help a company to create specific marketing strategies depending on what kind of segment they are targeting. 
-It is quite easy to understand that the more ‘Champions’ a company has, the healthier the company would be. It is important, in that sense, to find a way to keep those ‘Champions’ as long as possible. 
-But the strategy must be different when a company faces ‘At Risk’ or ‘Lost’ segments. The analysis about why those customers are slipping away must go deeper on the cause, a major retention problem must be addressed.
-An even different approach must be considered when it comes to ‘Loyal’ or ‘Potential Loyalist’. 
-Therefore a healthy company cannot rely on a single strategy; developing tailored strategies would increase the chances of success. 
+Three problems in the first version, none of which raised an error — each silently produced wrong answers.
 
-Strategic Recommendations
+**1. Inverted Frequency and Monetary scores.**
+`NTILE` assigns bucket 1 to whatever sorts first, so `order by frequency_orders desc` gave the *most* frequent customers the *worst* score. `Champions` was selecting customers who bought recently, rarely, and cheaply. The symptom was visible in the output: Champions held 8.96% of customers but only 5.21% of revenue — under-indexing, when the segment is defined to be the best.
 
-I would focus especially on the ‘Potential Loyalist’ segment: since they recently purchased, they would be more inclined and reactive to a tailored marketing campaign.
-‘Champions’ and ‘Loyal’ represent the most important part for a company's revenue, for that reason they cannot be forgotten and it is important to make them feel important. A tailored discount campaign could be a very effective strategy for those segments. 
-On the other hand, ‘At risk’ and ‘Lost’ are not worth spending money on targeting campaigns since they most likely already jumped out of the boat, especially when f_score (Frequency) and r_score (Recency) have values <=1.
-For the ‘Need Attention’ segment it would instead be worth spending some money before it is too late. Most of the time customers find better alternatives, finding the reason why they are slipping away (they found more convenient offers for example) could be a key to win them back.
+**2. Unreachable `Lost` segment.**
+`when r_score <= 2 then 'At risk'` sat above `when r_score <= 1 and f_score <= 1 then 'Lost'`. Since `CASE` returns the first match, every potential `Lost` row was caught by `At risk` first and the segment never appeared in the output at all.
 
-Further Analysis
+**3. Non-deterministic quintile boundaries.**
+`NTILE` splits rows into equal-sized buckets regardless of ties. Thousands of customers share the same `recency_days` value, and those sitting on a bucket boundary were assigned differently on each run — segment counts shifted by a few dozen customers every time the query executed. Adding `customer_id` as a secondary sort key makes the assignment reproducible.
 
-An additional analysis that could be performed is to dig deep into each segment. Not only to value ‘Champions’ and ‘Loyal’ but to see, for example, what kind of subscription those segments have (if the company is offering some kind of subscription like ‘premium’ or ‘basic’). And if they do not have one then it could be a good suggestion to create them, to be able to increase the level of loyalty.
-In addition, it could be a good idea to analyse what kind of products those segments buy the most and tailor specific promotions to maximise the profit from each group. 
-Another idea could be to keep track, daily if it is possible, of how many customers move between the segments. That way a company can verify the success or failure of retention campaigns. Keeping an extra eye of churns in the most valuable segments
+## Validation
+
+Three checks that catch the problems above:
+
+```sql
+-- Does each score point the right way?
+-- avg_recency must FALL as r_score rises.
+-- avg_orders and avg_spend must RISE as f_score / m_score rise.
+select r_score,
+       count(*)                        as customers,
+       round(avg(recency_days), 1)     as avg_recency,
+       round(avg(frequency_orders), 2) as avg_orders,
+       round(avg(monetary_value), 0)   as avg_spend
+from scored_rfm
+group by r_score
+order by r_score;
+
+-- Is every segment reachable?
+-- A label missing here is dead code, not an empty group.
+select rfm_segment, count(*) as customers
+from segmented_rfm
+group by rfm_segment
+order by customers desc;
+
+-- How many customers never ordered at all?
+select count(*) as never_ordered
+from snowflake_sample_data.tpch_sf1.customer c
+where not exists (
+  select 1 from snowflake_sample_data.tpch_sf1.orders o
+  where o.o_custkey = c.c_custkey
+);
+```
+
+Running the segmentation twice and comparing counts is the check for problem 3. Disable the result cache first with `alter session set use_cached_result = false;`, or Snowflake may return the previous answer without re-executing.
+
+## Limitations
+
+- **TPC-H is synthetic.** Orders are generated pseudo-randomly, so average order value clusters tightly around 150,000 and the near-zero frequency/AOV correlation is a property of the generator rather than of customer behaviour. The method transfers to real data; these specific figures do not.
+- **A third of customers are excluded.** 50,004 of TPC-H's 150,000 customers placed no orders. They have no recency and cannot be scored, so they sit outside every segment above. Arguably they are the most genuinely lost group in the dataset.
+- **`rfm_score` sums the three dimensions**, so 5-1-5 and 3-4-4 both total 11 despite describing very different customers. It is a rough ranking, not a measure of value.
+- **Quintiles are relative, not absolute.** `NTILE(5)` always produces five equal groups, whether or not the underlying values differ meaningfully. A score of 5 means "top fifth of this dataset", not "high" in any absolute sense.
+
+## Files
+
+| File | Contents |
+|---|---|
+| `sql-customer-segmentation-rfm.sql` | Segmentation model and exploration queries |
+| `findings.pdf` | Written analysis and recommendations |
+
+## Running it
+
+Requires a Snowflake account with access to the shared `SNOWFLAKE_SAMPLE_DATA` database.
+
+```sql
+use database snowflake_sample_data;
+use schema tpch_sf1;
+```
+
+Then run the CTE chain in the SQL file, appending one exploration query at a time.
