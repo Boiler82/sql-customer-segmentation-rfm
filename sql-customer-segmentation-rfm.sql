@@ -28,7 +28,7 @@ customers_aggregate as (
 -- Creating a reference date for the Recency segment
 reference_date as (
   select
-    max(o_orderdate) as ref_date -- 1998-08-03
+    max(o_orderdate) as ref_date -- 1998-08-02
   from
     snowflake_sample_data.tpch_sf1.orders
 ),
@@ -36,7 +36,7 @@ reference_date as (
 customers_rfm as (
   select
     o.o_custkey as customer_id,
-    datediff('day',max(o.o_orderdate), -- Using DATEDIFF to calculate the customer's last transaction date
+    datediff('day',max(o.o_orderdate), -- Using DATEDIFF to calculate days since the customer's last transaction
     (select
       ref_date
      from
@@ -49,7 +49,9 @@ customers_rfm as (
   group by
     o.o_custkey
 ),
--- Combining all the data and left join the tables to be sure that all the customers matches from the left table
+-- Joining customer details and aggregates onto the RFM base.
+-- Note: the base comes from orders, so customers with no orders
+-- are not in this model at all (50,004 of them in TPCH_SF1).
 aggregate_rfm as (
   select
     crfm.customer_id,
@@ -72,10 +74,13 @@ aggregate_rfm as (
       on crfm.customer_id = ca.o_custkey
 ),
 -- Using NTILE to create a customer's rank
+-- customer_id is a tiebreaker on every NTILE: without it, customers with
+-- identical values are split arbitrarily across quintile boundaries and
+-- segment counts shift between runs.
 scored_rfm as (
   select
     *,
-    ntile(5) over(order by recency_days desc) as r_score,  
+    ntile(5) over(order by recency_days desc, customer_id) as r_score,  
     ntile(5) over(order by frequency_orders asc, customer_id) as f_score,
     ntile(5) over(order by avg_order_value asc, customer_id) as m_score
   from
@@ -118,7 +123,8 @@ select
   count(customer_id) as customer_count,
   round(count(customer_id) * 100.0 / sum(count(customer_id)) over(), 2) as percentage_of_total,
   sum(total_revenue) as total_revenue_per_segment,
-  round(sum(total_revenue) * 100.0 / sum(sum(total_revenue)) over(), 2) as percentage_of_total_revenue
+  round(sum(total_revenue) * 100.0 / sum(sum(total_revenue)) over(), 2) as percentage_of_total_revenue,
+  round(avg(total_revenue), 0) as revenue_per_customer
 from
   segmented_rfm
 group by
